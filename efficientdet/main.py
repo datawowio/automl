@@ -31,6 +31,8 @@ import det_model_fn
 import hparams_config
 import utils
 
+os.environ["CUDA_VISIBLE_DEVICES"]='1'
+
 # Cloud TPU Cluster Resolvers
 flags.DEFINE_string(
     'tpu', default=None,
