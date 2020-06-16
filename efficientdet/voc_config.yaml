@@ -1,38 +1,6 @@
-# num_classes: 32
-#   moving_average_decay: 0
-#   label_id_mapping: {
-#     0: Male Breast,
-#     1: Female Breast,
-#     2: Male Genital,
-#     3: Female Genital,
-#     4: Nipple,
-#     5: Human face,
-#     6: Human body,
-#     7: Human hand,
-#     8: Human leg,
-#     9: Human head,
-#     10: Emoji,
-#     11: Shirts,
-#     12: Shorts,
-#     13: Female Underwears,
-#     14: Male Underwears,
-#     15: Swimsuits,
-#     16: Pills,
-#     17: Narcotic,
-#     18: Blade,
-#     19: Gun,
-#     20: Man,
-#     21: Woman,
-#     22: Baby,
-#     23: Alcohol,
-#     24: Adult Toys,
-#     25: Condom,
-#     26: Waste,
-#     27: Blood,
-#     28: Injury,
-#     29: Corpse,
-#     30: Bill,
-#     31: Coin}
-num_classes: 20
+num_classes: 33
 moving_average_decay: 0
-label_id_mapping: {0: background, 1: aeroplane, 2: bicycle, 3: bird, 4: boat, 5: bottle, 6: bus, 7: car, 8: cat, 9: chair, 10: cow, 11: diningtable, 12: dog, 13: horse, 14: motorbike, 15: person, 16: pottedplant, 17: sheep, 18: sofa, 19: train, 20: tvmonitor}
+label_id_mapping: {0: background,1: Male Breast,2: Female Breast,3: Male Genital,4: Female Genital,5: Nipple,6: Human face,7: Human body,8: Human hand,9: Human leg,10: Human head,11: Emoji,12: Shirts,13: Shorts,14: Female Underwears,15: Male Underwears,16: Swimsuits,17: Pills,18: Narcotic,19: Blade,20: Gun,21: Man,22: Woman,23: Baby,24: Alcohol,25: Adult Toys,26: Condom,27: Waste,28: Blood,29: Injury,30: Corpse,31: Bill,32: Coin, 33: Babay}
+# num_classes: 20
+# moving_average_decay: 0
+# label_id_mapping: {0: background, 1: aeroplane, 2: bicycle, 3: bird, 4: boat, 5: bottle, 6: bus, 7: car, 8: cat, 9: chair, 10: cow, 11: diningtable, 12: dog, 13: horse, 14: motorbike, 15: person, 16: pottedplant, 17: sheep, 18: sofa, 19: train, 20: tvmonitor}

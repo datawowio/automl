@@ -55,29 +55,65 @@ FLAGS = flags.FLAGS
 SETS = ['train', 'val', 'trainval', 'test']
 YEARS = ['VOC2007', 'VOC2012', 'merged']
 
+# pascal_label_map_dict = {
+#     'background': 0,
+#     'Emoji': 1,
+#     'bicycle': 2,
+#     'bird': 3,
+#     'boat': 4,
+#     'bottle': 5,
+#     'bus': 6,
+#     'car': 7,
+#     'cat': 8,
+#     'chair': 9,
+#     'cow': 10,
+#     'diningtable': 11,
+#     'dog': 12,
+#     'horse': 13,
+#     'motorbike': 14,
+#     'person': 15,
+#     'pottedplant': 16,
+#     'sheep': 17,
+#     'sofa': 18,
+#     'train': 19,
+#     'tvmonitor': 20,
+# }
+
 pascal_label_map_dict = {
     'background': 0,
-    'aeroplane': 1,
-    'bicycle': 2,
-    'bird': 3,
-    'boat': 4,
-    'bottle': 5,
-    'bus': 6,
-    'car': 7,
-    'cat': 8,
-    'chair': 9,
-    'cow': 10,
-    'diningtable': 11,
-    'dog': 12,
-    'horse': 13,
-    'motorbike': 14,
-    'person': 15,
-    'pottedplant': 16,
-    'sheep': 17,
-    'sofa': 18,
-    'train': 19,
-    'tvmonitor': 20,
-}
+    'Male Breast': 1,
+    'Female Breast': 2,
+    'Male Genital': 3,
+    'Female Genital': 4,
+    'Nipple': 5,
+    'Human Face': 6,
+    'Human Body': 7,
+    'Human Hand': 8,
+    'Human Leg': 9,
+    'Human Head': 10,
+    'Emoji': 11,
+    'Shirts': 12,
+    'Shorts': 13,
+    'Female Underwears': 14,
+    'Male Underwears': 15,
+    'Swimsuits': 16,
+    'Pills': 17,
+    'Narcotic': 18,
+    'Blade': 19,
+    'Gun': 20,
+    'Man': 21,
+    'Woman': 22,
+    'Baby': 23,
+    'Alcohol': 24,
+    'Adult Toys': 25,
+    'Condom': 26,
+    'Waste': 27,
+    'Blood': 28,
+    'Injury': 29,
+    'Corpse': 30,
+    'Bill': 31,
+    'Coin': 32,
+    'Babay': 33}
 
 GLOBAL_IMG_ID = 0  # global image id.
 GLOBAL_ANN_ID = 0  # global annotation id.
@@ -276,8 +312,10 @@ def main(_):
       ann_json_dict['categories'].append(cls)
 
     logging.info('Reading from PASCAL %s dataset.', year)
+    # examples_path = os.path.join(data_dir, year, 'ImageSets', 'Main',
+    #                              'aeroplane_' + FLAGS.set + '.txt')
     examples_path = os.path.join(data_dir, year, 'ImageSets', 'Main',
-                                 'aeroplane_' + FLAGS.set + '.txt')
+                                 FLAGS.set + '.txt')
     annotations_dir = os.path.join(data_dir, year, FLAGS.annotations_dir)
     examples_list = tfrecord_util.read_examples_list(examples_path)
     for idx, example in enumerate(examples_list):
