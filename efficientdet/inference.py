@@ -39,6 +39,8 @@ import utils
 from visualize import vis_utils
 from tensorflow.python.client import timeline  # pylint: disable=g-direct-tensorflow-import
 
+os.environ["CUDA_VISIBLE_DEVICES"]='1'
+
 coco_id_mapping = {
     1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorcycle', 5: 'airplane',
     6: 'bus', 7: 'train', 8: 'truck', 9: 'boat', 10: 'traffic light',

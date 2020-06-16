@@ -1,5 +1,6 @@
 num_classes: 33
-moving_average_decay: 0
+var_freeze_expr: '(efficientnet|fpn_cells|resample_p6)'
+max_instances_per_image: 500
 label_id_mapping: {0: background,1: Male Breast,2: Female Breast,3: Male Genital,4: Female Genital,5: Nipple,6: Human face,7: Human body,8: Human hand,9: Human leg,10: Human head,11: Emoji,12: Shirts,13: Shorts,14: Female Underwears,15: Male Underwears,16: Swimsuits,17: Pills,18: Narcotic,19: Blade,20: Gun,21: Man,22: Woman,23: Baby,24: Alcohol,25: Adult Toys,26: Condom,27: Waste,28: Blood,29: Injury,30: Corpse,31: Bill,32: Coin, 33: Babay}
 # num_classes: 20
 # moving_average_decay: 0
