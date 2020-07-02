@@ -36,6 +36,7 @@ import dataloader
 import det_model_fn
 import hparams_config
 import utils
+from keras import efficientdet_keras
 from visualize import vis_utils
 from tensorflow.python.client import timeline  # pylint: disable=g-direct-tensorflow-import
 
@@ -163,16 +164,39 @@ def build_model(model_name: Text, inputs: tf.Tensor, **kwargs):
     (cls_outputs, box_outputs): the outputs for class and box predictions.
     Each is a dictionary with key as feature level and value as predictions.
   """
-  model_arch = det_model_fn.get_model_arch(model_name)
   mixed_precision = kwargs.get('mixed_precision', None)
   precision = utils.get_precision(kwargs.get('strategy', None), mixed_precision)
-  cls_outputs, box_outputs = utils.build_model_with_precision(
-      precision, model_arch, inputs, False, model_name, **kwargs)
+
+  if kwargs.get('use_keras_model', None):
+
+    def model_arch(feats, model_name=None, **kwargs):
+      """Construct a model arch for keras models."""
+      config = hparams_config.get_efficientdet_config(model_name)
+      config.override(kwargs)
+      model = efficientdet_keras.EfficientDetNet(config=config)
+      cls_out_list, box_out_list = model(feats)
+      # convert the list of model outputs to a dictionary with key=level.
+      assert len(cls_out_list) == config.max_level - config.min_level + 1
+      assert len(box_out_list) == config.max_level - config.min_level + 1
+      cls_outputs, box_outputs = {}, {}
+      for i in range(config.min_level, config.max_level + 1):
+        cls_outputs[i] = cls_out_list[i - config.min_level]
+        box_outputs[i] = box_out_list[i - config.min_level]
+      return cls_outputs, box_outputs
+
+    cls_outputs, box_outputs = utils.build_model_with_precision(
+        precision, model_arch, inputs, False, model_name, **kwargs)
+  else:
+    model_arch = det_model_fn.get_model_arch(model_name)
+    cls_outputs, box_outputs = utils.build_model_with_precision(
+        precision, model_arch, inputs, False, model_name, **kwargs)
+
   if mixed_precision:
     # Post-processing has multiple places with hard-coded float32.
     # TODO(tanmingxing): Remove them once post-process can adpat to dtypes.
     cls_outputs = {k: tf.cast(v, tf.float32) for k, v in cls_outputs.items()}
     box_outputs = {k: tf.cast(v, tf.float32) for k, v in box_outputs.items()}
+
   return cls_outputs, box_outputs
 
 
@@ -256,14 +280,14 @@ def det_post_process_combined(params, cls_outputs, box_outputs, scales,
   image_ids = tf.cast(
       tf.tile(
           tf.expand_dims(tf.range(batch_size), axis=1), [1, max_boxes_to_draw]),
-      dtype=scales.dtype)
+      dtype=tf.float32)
   image_size = utils.parse_image_size(params['image_size'])
   ymin = tf.clip_by_value(nmsed_boxes[..., 0], 0, image_size[0]) * scales
   xmin = tf.clip_by_value(nmsed_boxes[..., 1], 0, image_size[1]) * scales
   ymax = tf.clip_by_value(nmsed_boxes[..., 2], 0, image_size[0]) * scales
   xmax = tf.clip_by_value(nmsed_boxes[..., 3], 0, image_size[1]) * scales
 
-  classes = tf.cast(nmsed_classes + 1, scales.dtype)
+  classes = tf.cast(nmsed_classes + 1, tf.float32)
   detection_list = [image_ids, ymin, xmin, ymax, xmax, nmsed_scores, classes]
   detections = tf.stack(detection_list, axis=2, name='detections')
   return detections
@@ -291,7 +315,8 @@ def det_post_process(params: Dict[Any, Any], cls_outputs: Dict[int, tf.Tensor],
     detections_batch: a batch of detection results. Each detection is a tensor
       with each row as [image_id, ymin, xmin, ymax, xmax, score, class].
   """
-  if not params['batch_size']:
+  batch_size = cls_outputs[params['min_level']].get_shape()[0]
+  if not batch_size:
     # Use combined version for dynamic batch size.
     return det_post_process_combined(params, cls_outputs, box_outputs, scales,
                                      min_score_thresh, max_boxes_to_draw)
@@ -342,7 +367,7 @@ def visualize_image(image,
                     boxes,
                     classes,
                     scores,
-                    id_mapping,
+                    id_mapping=None,
                     min_score_thresh=anchors.MIN_SCORE_THRESH,
                     max_boxes_to_draw=anchors.MAX_DETECTIONS_PER_IMAGE,
                     line_thickness=2,
@@ -364,6 +389,7 @@ def visualize_image(image,
   Returns:
     output_image: an output image with annotated boxes and classes.
   """
+  id_mapping = parse_label_id_mapping(id_mapping)
   category_index = {k: {'id': k, 'name': id_mapping[k]} for k in id_mapping}
   img = np.array(image)
   vis_utils.visualize_boxes_and_labels_on_image_array(
@@ -737,7 +763,6 @@ class ServingDriver(object):
           input_arrays=[input_name],
           input_shapes=input_shapes,
           output_arrays=[signitures['prediction'].op.name])
-      converter.experimental_new_converter = True
       converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
       tflite_model = converter.convert()
 
@@ -818,7 +843,6 @@ class InferenceDriver(object):
           self.ckpt_path,
           ema_decay=self.params['moving_average_decay'],
           export_ckpt=None)
-
       # for postprocessing.
       params.update(
           dict(batch_size=len(raw_images), disable_pyfun=self.disable_pyfun))

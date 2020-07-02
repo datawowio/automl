@@ -32,16 +32,31 @@ from tensorflow.python.tpu import tpu_function  # pylint:disable=g-direct-tensor
 # pylint: disable=logging-format-interpolation
 
 
+def srelu_fn(x):
+  """Smooth relu: a smooth version of relu."""
+  with tf.name_scope('srelu'):
+    beta = tf.Variable(20.0, name='srelu_beta', dtype=tf.float32)**2
+    beta = tf.cast(beta, x.dtype)
+    safe_log = tf.math.log(tf.where(x > 0., beta * x + 1., tf.ones_like(x)))
+    return tf.where((x > 0.), x - (1. / beta) * safe_log, tf.zeros_like(x))
+
+
 def activation_fn(features: tf.Tensor, act_type: Text):
   """Customized non-linear activation type."""
   if act_type == 'swish':
     return tf.nn.swish(features)
   elif act_type == 'swish_native':
     return features * tf.sigmoid(features)
+  elif act_type == 'hswish':
+    return features * tf.nn.relu6(features + 3) / 6
   elif act_type == 'relu':
     return tf.nn.relu(features)
   elif act_type == 'relu6':
     return tf.nn.relu6(features)
+  elif act_type == 'mish':
+    return features * tf.math.tanh(tf.math.softplus(features))
+  elif act_type == 'srelu':
+    return srelu_fn(features)
   else:
     raise ValueError('Unsupported act_type {}'.format(act_type))
 
@@ -212,8 +227,8 @@ class TpuBatchNormalization(tf.keras.layers.BatchNormalization):
     else:
       return (shard_mean, shard_variance)
 
-  def call(self, *args, **kwargs):
-    outputs = super(TpuBatchNormalization, self).call(*args, **kwargs)
+  def call(self, inputs, training=None):
+    outputs = super(TpuBatchNormalization, self).call(inputs, training)
     # A temporary hack for tf1 compatibility with keras batch norm.
     for u in self.updates:
       tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, u)
@@ -249,8 +264,8 @@ class SyncBatchNormalization(tf.keras.layers.BatchNormalization):
     else:
       return (shard_mean, shard_variance)
 
-  def call(self, *args, **kwargs):
-    outputs = super(SyncBatchNormalization, self).call(*args, **kwargs)
+  def call(self, inputs, training=None):
+    outputs = super(SyncBatchNormalization, self).call(inputs, training)
     # A temporary hack for tf1 compatibility with keras batch norm.
     for u in self.updates:
       tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, u)
@@ -265,8 +280,8 @@ class BatchNormalization(tf.keras.layers.BatchNormalization):
       kwargs['name'] = 'tpu_batch_normalization'
     super(BatchNormalization, self).__init__(**kwargs)
 
-  def call(self, *args, **kwargs):
-    outputs = super(BatchNormalization, self).call(*args, **kwargs)
+  def call(self, inputs, training=None):
+    outputs = super(BatchNormalization, self).call(inputs, training)
     # A temporary hack for tf1 compatibility with keras batch norm.
     for u in self.updates:
       tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, u)
@@ -563,7 +578,17 @@ def verify_feats_size(feats,
 def get_precision(strategy: str, mixed_precision: bool = False):
   """Get the precision policy for a given strategy."""
   if mixed_precision:
-    return 'mixed_bfloat16' if strategy == 'tpu' else 'mixed_float16'
+    if strategy == 'tpu':
+      return 'mixed_bfloat16'
+
+    if tf.config.experimental.list_physical_devices('GPU'):
+      return 'mixed_float16'
+
+    # TODO(fsx950223): Fix CPU float16 inference
+    # https://github.com/google/automl/issues/504
+    logging.warning('float16 is not supported for CPU, use float32 instead')
+    return 'float32'
+
   return 'float32'
 
 
