@@ -519,6 +519,12 @@ def _scale_bbox_only_op_probability(prob):
   """
   return prob / 3.0
 
+def _ensure_non_zero(input_tensor):
+  if input_tensor.numpy() == 0:
+    output = tf.ones_like(input_tensor)
+  else:
+    output = input_tensor
+    return output
 
 def _apply_bbox_augmentation(image, bbox, augmentation_func, *args):
   """Applies augmentation_func to the subsection of image indicated by bbox.
@@ -537,7 +543,10 @@ def _apply_bbox_augmentation(image, bbox, augmentation_func, *args):
     have `ugmentation_func applied to it.
   """
   image_height = tf.to_float(tf.shape(image)[0])
+  image_height = _ensure_non_zero(image_height)
   image_width = tf.to_float(tf.shape(image)[1])
+  image_width = _ensure_non_zero(image_width)
+
   min_y = tf.to_int32(image_height * bbox[0])
   min_x = tf.to_int32(image_width * bbox[1])
   max_y = tf.to_int32(image_height * bbox[2])
