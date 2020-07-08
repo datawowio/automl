@@ -112,8 +112,7 @@ pascal_label_map_dict = {
     'Injury': 29,
     'Corpse': 30,
     'Bill': 31,
-    'Coin': 32,
-    'Babay': 33}
+    'Coin': 32}
 
 GLOBAL_IMG_ID = 0  # global image id.
 GLOBAL_ANN_ID = 0  # global annotation id.
