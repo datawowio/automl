@@ -1,4 +1,5 @@
 num_classes: 32
-autoaugment_policy: v0
+autoaugment_policy: v3
+var_freeze_expr: '(efficientnet|fpn_cells|resample_p6)'
 max_instances_per_image: 300
 label_id_mapping: {0: background,1: Male Breast,2: Female Breast,3: Male Genital,4: Female Genital,5: Nipple,6: Human Face,7: Human Body,8: Human Hand,9: Human Leg,10: Human Head,11: Emoji,12: Shirts,13: Shorts,14: Female Underwears,15: Male Underwears,16: Swimsuits,17: Pills,18: Narcotic,19: Blade,20: Gun,21: Man,22: Woman,23: Baby,24: Alcohol,25: Adult Toys,26: Condom,27: Waste,28: Blood,29: Injury,30: Corpse,31: Bill,32: Coin}
