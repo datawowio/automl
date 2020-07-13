@@ -1,7 +1,10 @@
-num_classes: 33
+num_classes: 32
+autoaugment_policy: v3
 var_freeze_expr: '(efficientnet|fpn_cells|resample_p6)'
-max_instances_per_image: 500
-label_id_mapping: {0: background,1: Male Breast,2: Female Breast,3: Male Genital,4: Female Genital,5: Nipple,6: Human face,7: Human body,8: Human hand,9: Human leg,10: Human head,11: Emoji,12: Shirts,13: Shorts,14: Female Underwears,15: Male Underwears,16: Swimsuits,17: Pills,18: Narcotic,19: Blade,20: Gun,21: Man,22: Woman,23: Baby,24: Alcohol,25: Adult Toys,26: Condom,27: Waste,28: Blood,29: Injury,30: Corpse,31: Bill,32: Coin, 33: Babay}
-# num_classes: 20
-# moving_average_decay: 0
-# label_id_mapping: {0: background, 1: aeroplane, 2: bicycle, 3: bird, 4: boat, 5: bottle, 6: bus, 7: car, 8: cat, 9: chair, 10: cow, 11: diningtable, 12: dog, 13: horse, 14: motorbike, 15: person, 16: pottedplant, 17: sheep, 18: sofa, 19: train, 20: tvmonitor}
+max_instances_per_image: 200
+momentum: 0.9
+optimizer: 'adam'  # can be 'adam' or 'sgd'.
+learning_rate: 0.008  # 0.008 for adam.
+lr_warmup_init: 0.008  # 0.0008 for adam.
+lr_warmup_epoch: 1.0
+label_id_mapping: {0: background,1: Male Breast,2: Female Breast,3: Male Genital,4: Female Genital,5: Nipple,6: Human face,7: Human body,8: Human hand,9: Human leg,10: Human head,11: Emoji,12: Shirts,13: Shorts,14: Female Underwears,15: Male Underwears,16: Swimsuits,17: Pills,18: Narcotic,19: Blade,20: Gun,21: Man,22: Woman,23: Baby,24: Alcohol,25: Adult Toys,26: Condom,27: Waste,28: Blood,29: Injury,30: Corpse,31: Bill,32: Coin}
