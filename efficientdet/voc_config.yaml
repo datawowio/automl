@@ -1,5 +1,5 @@
-num_classes: 32
-autoaugment_policy: v3
+num_classes: 33
+# autoaugment_policy: v3
 var_freeze_expr: '(efficientnet|fpn_cells|resample_p6)'
 max_instances_per_image: 200
 momentum: 0.9
