@@ -194,6 +194,7 @@ def dict_to_tf_example(data,
   ymin = []
   xmax = []
   ymax = []
+  area = []
   classes = []
   classes_text = []
   truncated = []
@@ -211,6 +212,7 @@ def dict_to_tf_example(data,
       ymin.append(float(obj['bndbox']['ymin']) / height)
       xmax.append(float(obj['bndbox']['xmax']) / width)
       ymax.append(float(obj['bndbox']['ymax']) / height)
+      area.append((xmax[-1] - xmin[-1]) * (ymax[-1] - ymin[-1]))
       classes_text.append(obj['name'].encode('utf8'))
       classes.append(label_map_dict[obj['name']])
       truncated.append(int(obj['truncated']))
@@ -260,6 +262,8 @@ def dict_to_tf_example(data,
                   tfrecord_util.float_list_feature(ymin),
               'image/object/bbox/ymax':
                   tfrecord_util.float_list_feature(ymax),
+              'image/object/area':
+                  tfrecord_util.float_list_feature(area),
               'image/object/class/text':
                   tfrecord_util.bytes_list_feature(classes_text),
               'image/object/class/label':
