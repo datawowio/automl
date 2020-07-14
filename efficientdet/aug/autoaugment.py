@@ -149,11 +149,11 @@ def policy_v3():
       [('Equalize', 1.0, 8), ('TranslateY_BBox', 1.0, 8)],
       [('Posterize', 0.6, 2), ('Rotate_BBox', 0.0, 10)],
       [('AutoContrast', 0.6, 0), ('Rotate_BBox', 1.0, 6)],
-      [('Equalize', 0.0, 4), ('Cutout', 0.8, 10)],
+      # [('Equalize', 0.0, 4), ('Cutout', 0.8, 10)],
       [('Brightness', 1.0, 2), ('TranslateY_BBox', 1.0, 6)],
       [('Contrast', 0.0, 2), ('ShearY_BBox', 0.8, 0)],
       [('AutoContrast', 0.8, 10), ('Contrast', 0.2, 10)],
-      [('Rotate_BBox', 1.0, 10), ('Cutout', 1.0, 10)],
+      # [('Rotate_BBox', 1.0, 10), ('Cutout', 1.0, 10)],
       [('SolarizeAdd', 0.8, 6), ('Equalize', 0.8, 8)],
   ]
   return policy
@@ -221,8 +221,8 @@ def cutout(image, pad_size, replace=0):
   Returns:
     An image Tensor that is of type uint8.
   """
-  image_height = tf.shape(image)[0]
-  image_width = tf.shape(image)[1]
+  image_height = tf.maximum(tf.shape(image)[0], 10)
+  image_width = tf.maximum(tf.shape(image)[1], 10)
 
   # Sample the center location in the image where the zero mask will be applied.
   cutout_center_height = tf.random_uniform(
@@ -354,8 +354,8 @@ def random_shift_bbox(image, bbox, pixel_scaling, replace,
     the new bbox that contains the new coordinates.
   """
   # Obtains image height and width and create helper clip functions.
-  image_height = tf.to_float(tf.shape(image)[0])
-  image_width = tf.to_float(tf.shape(image)[1])
+  image_height = tf.to_float(tf.maximum(tf.shape(image)[0], 10))
+  image_width = tf.to_float(tf.maximum(tf.shape(image)[1], 10))
   def clip_y(val):
     return tf.clip_by_value(val, 0, tf.to_int32(image_height) - 1)
   def clip_x(val):
@@ -512,13 +512,6 @@ def _scale_bbox_only_op_probability(prob):
   """
   return prob / 3.0
 
-def _ensure_non_zero(input_tensor):
-  if input_tensor.numpy() == 0:
-    output = tf.ones_like(input_tensor)
-  else:
-    output = input_tensor
-    return output
-
 def _apply_bbox_augmentation(image, bbox, augmentation_func, *args):
   """Applies augmentation_func to the subsection of image indicated by bbox.
 
@@ -535,10 +528,8 @@ def _apply_bbox_augmentation(image, bbox, augmentation_func, *args):
     A modified version of image, where the bbox location in the image will
     have `ugmentation_func applied to it.
   """
-  image_height = tf.to_float(tf.shape(image)[0])
-  image_height = _ensure_non_zero(image_height)
-  image_width = tf.to_float(tf.shape(image)[1])
-  image_width = _ensure_non_zero(image_width)
+  image_height = tf.to_float(tf.maximum(tf.shape(image)[0], 10))
+  image_width = tf.to_float(tf.maximum(tf.shape(image)[1], 10))
 
   min_y = tf.to_int32(image_height * bbox[0])
   min_x = tf.to_int32(image_width * bbox[1])
@@ -1259,8 +1250,8 @@ def _cutout_inside_bbox(image, bbox, pad_fraction):
     will have cutout applied. The second element is the mean of the pixels
     in the image where the bbox is located.
   """
-  image_height = tf.shape(image)[0]
-  image_width = tf.shape(image)[1]
+  image_height = tf.maximum(tf.shape(image)[0], 10)
+  image_width = tf.maximum(tf.shape(image)[1], 10)
   # Transform from shape [1, 4] to [4].
   bbox = tf.squeeze(bbox)
 
