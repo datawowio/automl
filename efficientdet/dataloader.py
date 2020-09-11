@@ -22,7 +22,7 @@ from object_detection import preprocessor
 from object_detection import tf_example_decoder
 
 
-class InputProcessor(object):
+class InputProcessor:
   """Base class of Input processor."""
 
   def __init__(self, image, output_size):
@@ -212,7 +212,6 @@ def pad_to_fixed_size(data, pad_value, output_shape):
     data: Tensor to be padded to output_shape.
     pad_value: A constant value assigned to the paddings.
     output_shape: The output shape of a 2D tensor.
-
   Returns:
     The Padded tensor with output_shape [max_instances_per_image, dimension].
   """
@@ -230,7 +229,7 @@ def pad_to_fixed_size(data, pad_value, output_shape):
   return padded_data
 
 
-class InputReader(object):
+class InputReader:
   """Input reader for dataset."""
 
   def __init__(self,
@@ -290,6 +289,7 @@ class InputReader(object):
       classes = tf.reshape(tf.cast(classes, dtype=tf.float32), [-1, 1])
       areas = data['groundtruth_area']
       is_crowds = data['groundtruth_is_crowd']
+      image_masks = data.get('groundtruth_instance_masks', [])
       classes = tf.reshape(tf.cast(classes, dtype=tf.float32), [-1, 1])
 
       if params['skip_crowd_during_training'] and self._is_training:
@@ -297,14 +297,15 @@ class InputReader(object):
         classes = tf.gather_nd(classes, indices)
         boxes = tf.gather_nd(boxes, indices)
 
-      # NOTE: The autoaugment method works best when used alongside the
-      # standard horizontal flipping of images along with size jittering
-      # and normalization.
       if params.get('autoaugment_policy', None) and self._is_training:
         from aug import autoaugment  # pylint: disable=g-import-not-at-top
-        image, boxes = autoaugment.distort_image_with_autoaugment(
-            image, boxes, params['autoaugment_policy'], params['use_augmix'],
-            *params['augmix_params'])
+        if params['autoaugment_policy'] == 'randaug':
+          image, boxes = autoaugment.distort_image_with_randaugment(
+              image, boxes, num_layers=1, magnitude=15)
+        else:
+          image, boxes = autoaugment.distort_image_with_autoaugment(
+              image, boxes, params['autoaugment_policy'],
+              params['use_augmix'], *params['augmix_params'])
 
       input_processor = DetectionInputProcessor(image, params['image_size'],
                                                 boxes, classes)
@@ -313,7 +314,7 @@ class InputReader(object):
         input_processor.random_horizontal_flip()
       if self._is_training:
         input_processor.set_training_random_scale_factors(
-            params['train_scale_min'], params['train_scale_max'],
+            params['jitter_min'], params['jitter_max'],
             params.get('target_size', None))
       else:
         input_processor.set_scale_factors_to_output_size()
@@ -339,12 +340,12 @@ class InputReader(object):
       classes = pad_to_fixed_size(classes, -1,
                                   [self._max_instances_per_image, 1])
       return (image, cls_targets, box_targets, num_positives, source_id,
-              image_scale, boxes, is_crowds, areas, classes)
+              image_scale, boxes, is_crowds, areas, classes, image_masks)
 
   @tf.autograph.experimental.do_not_convert
   def process_example(self, params, batch_size, images, cls_targets,
                       box_targets, num_positives, source_ids, image_scales,
-                      boxes, is_crowds, areas, classes):
+                      boxes, is_crowds, areas, classes, image_masks):
     """Processes one batch of data."""
     labels = {}
     # Count num_positives in a batch.
@@ -370,9 +371,10 @@ class InputReader(object):
     labels['source_ids'] = source_ids
     labels['groundtruth_data'] = groundtruth_data
     labels['image_scales'] = image_scales
+    labels['image_masks'] = image_masks
     return images, labels
 
-  def __call__(self, params):
+  def __call__(self, params, input_context=None):
     input_anchors = anchors.Anchors(params['min_level'], params['max_level'],
                                     params['num_scales'],
                                     params['aspect_ratios'],
@@ -380,30 +382,48 @@ class InputReader(object):
                                     params['image_size'])
     anchor_labeler = anchors.AnchorLabeler(input_anchors, params['num_classes'])
     example_decoder = tf_example_decoder.TfExampleDecoder(
-        regenerate_source_id=params['regenerate_source_id'])
+        include_mask='segmentation' in params['heads'],
+        regenerate_source_id=params['regenerate_source_id']
+    )
 
     batch_size = params['batch_size']
     dataset = tf.data.Dataset.list_files(
         self._file_pattern, shuffle=self._is_training)
     if self._is_training:
       dataset = dataset.repeat()
-
+    if input_context:
+      dataset = dataset.shard(input_context.num_input_pipelines,
+                              input_context.input_pipeline_id)
     # Prefetch data from files.
     def _prefetch_dataset(filename):
-      dataset = tf.data.TFRecordDataset(filename).prefetch(1)
+      if params.get('dataset_type', None) == 'sstable':
+        pass
+      else:
+        dataset = tf.data.TFRecordDataset(filename).prefetch(1)
       return dataset
 
-    dataset = dataset.apply(
-        tf.data.experimental.parallel_interleave(
-            _prefetch_dataset, cycle_length=32, sloppy=self._is_training))
+    dataset = dataset.interleave(
+        _prefetch_dataset, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    options = tf.data.Options()
+    options.experimental_deterministic = not self._is_training
+    options.experimental_optimization.map_vectorization.enabled = True
+    options.experimental_optimization.map_parallelization = True
+    options.experimental_optimization.parallel_batch = True
+    dataset = dataset.with_options(options)
     if self._is_training:
       dataset = dataset.shuffle(64)
 
     # Parse the fetched records to input tensors for model function.
+    # pylint: disable=g-long-lambda
+    if params.get('dataset_type', None) == 'sstable':
+      map_fn = lambda key, value: self.dataset_parser(value, example_decoder,
+                                                      anchor_labeler, params)
+    else:
+      map_fn = lambda value: self.dataset_parser(value, example_decoder,
+                                                 anchor_labeler, params)
+    # pylint: enable=g-long-lambda
     dataset = dataset.map(
-        lambda value: self.dataset_parser(  # pylint: disable=g-long-lambda
-            value, example_decoder, anchor_labeler, params),
-        num_parallel_calls=64)
+        map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     dataset = dataset.prefetch(batch_size)
     dataset = dataset.batch(batch_size, drop_remainder=True)
     dataset = dataset.map(
@@ -414,4 +434,5 @@ class InputReader(object):
       # first batch. This reduces variance in performance and is useful in
       # testing.
       dataset = dataset.take(1).cache().repeat()
+    dataset = dataset.apply(tf.data.experimental.ignore_errors())
     return dataset

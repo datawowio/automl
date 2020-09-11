@@ -18,13 +18,7 @@
     EfficientDet: Scalable and Efficient Object Detection.
     CVPR 2020, https://arxiv.org/abs/1911.09070
 """
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import functools
-import itertools
 import re
 
 from absl import logging
@@ -35,6 +29,7 @@ import hparams_config
 import utils
 from backbone import backbone_factory
 from backbone import efficientnet_builder
+from keras import fpn_configs
 
 
 ################################################################################
@@ -49,36 +44,12 @@ def freeze_vars(variables, pattern):
     var_list: a list containing variables for training
   """
   if pattern:
-    variables = [v for v in variables if not re.match(pattern, v.name)]
+    filtered_vars = [v for v in variables if not re.match(pattern, v.name)]
+    if len(filtered_vars) == len(variables):
+      logging.warning('%s didnt match with any variable. Please use compatible '
+                      'pattern. i.e "(efficientnet)"', pattern)
+    return filtered_vars
   return variables
-
-
-def resize_bilinear(images, size, output_type):
-  """Returns resized images as output_type."""
-  images = tf.image.resize_bilinear(images, size, align_corners=True)
-  return tf.cast(images, output_type)
-
-
-def remove_variables(variables, resnet_depth=50):
-  """Removes low-level variables from the input.
-
-  Removing low-level parameters (e.g., initial convolution layer) from training
-  usually leads to higher training speed and slightly better testing accuracy.
-  The intuition is that the low-level architecture (e.g., ResNet-50) is able to
-  capture low-level features such as edges; therefore, it does not need to be
-  fine-tuned for the detection task.
-
-  Args:
-    variables: all the variables in training
-    resnet_depth: the depth of ResNet model
-
-  Returns:
-    var_list: a list containing variables for training
-
-  """
-  var_list = [v for v in variables
-              if v.name.find('resnet%s/conv2d/' % resnet_depth) == -1]
-  return var_list
 
 
 def resample_feature_map(feat,
@@ -367,11 +338,11 @@ def build_backbone(features, config):
         backbone_name,
         training=is_training_bn,
         override_params=override_params)
-    u1 = endpoints['reduction_1']
-    u2 = endpoints['reduction_2']
-    u3 = endpoints['reduction_3']
-    u4 = endpoints['reduction_4']
-    u5 = endpoints['reduction_5']
+    u1 = endpoints[0]
+    u2 = endpoints[1]
+    u3 = endpoints[2]
+    u4 = endpoints[3]
+    u5 = endpoints[4]
   else:
     raise ValueError(
         'backbone model {} is not supported.'.format(backbone_name))
@@ -444,66 +415,6 @@ def build_feature_network(features, config):
   return new_feats
 
 
-def bifpn_dynamic_config(min_level, max_level, weight_method):
-  """A dynamic bifpn config that can adapt to different min/max levels."""
-  p = hparams_config.Config()
-  p.weight_method = weight_method or 'fastattn'
-
-  # Node id starts from the input features and monotonically increase whenever
-  # a new node is added. Here is an example for level P3 - P7:
-  #     P7 (4)              P7" (12)
-  #     P6 (3)    P6' (5)   P6" (11)
-  #     P5 (2)    P5' (6)   P5" (10)
-  #     P4 (1)    P4' (7)   P4" (9)
-  #     P3 (0)              P3" (8)
-  # So output would be like:
-  # [
-  #   {'feat_level': 6, 'inputs_offsets': [3, 4]},  # for P6'
-  #   {'feat_level': 5, 'inputs_offsets': [2, 5]},  # for P5'
-  #   {'feat_level': 4, 'inputs_offsets': [1, 6]},  # for P4'
-  #   {'feat_level': 3, 'inputs_offsets': [0, 7]},  # for P3"
-  #   {'feat_level': 4, 'inputs_offsets': [1, 7, 8]},  # for P4"
-  #   {'feat_level': 5, 'inputs_offsets': [2, 6, 9]},  # for P5"
-  #   {'feat_level': 6, 'inputs_offsets': [3, 5, 10]},  # for P6"
-  #   {'feat_level': 7, 'inputs_offsets': [4, 11]},  # for P7"
-  # ]
-  num_levels = max_level - min_level + 1
-  node_ids = {min_level + i: [i] for i in range(num_levels)}
-
-  level_last_id = lambda level: node_ids[level][-1]
-  level_all_ids = lambda level: node_ids[level]
-  id_cnt = itertools.count(num_levels)
-
-  p.nodes = []
-  for i in range(max_level - 1, min_level - 1, -1):
-    # top-down path.
-    p.nodes.append({
-        'feat_level': i,
-        'inputs_offsets': [level_last_id(i), level_last_id(i + 1)]
-    })
-    node_ids[i].append(next(id_cnt))
-
-  for i in range(min_level + 1, max_level + 1):
-    # bottom-up path.
-    p.nodes.append({
-        'feat_level': i,
-        'inputs_offsets': level_all_ids(i) + [level_last_id(i - 1)]
-    })
-    node_ids[i].append(next(id_cnt))
-
-  return p
-
-
-def get_fpn_config(fpn_name, min_level, max_level, weight_method):
-  """Get fpn related configuration."""
-  if not fpn_name:
-    fpn_name = 'bifpn_dyn'
-  name_to_config = {
-      'bifpn_dyn': bifpn_dynamic_config(min_level, max_level, weight_method)
-  }
-  return name_to_config[fpn_name]
-
-
 def fuse_features(nodes, weight_method):
   """Fuse features from different resolutions and return a weighted sum.
 
@@ -570,8 +481,8 @@ def build_bifpn_layer(feats, feat_sizes, config):
   if p.fpn_config:
     fpn_config = p.fpn_config
   else:
-    fpn_config = get_fpn_config(p.fpn_name, p.min_level, p.max_level,
-                                p.fpn_weight_method)
+    fpn_config = fpn_configs.get_fpn_config(p.fpn_name, p.min_level,
+                                            p.max_level, p.fpn_weight_method)
 
   num_output_connections = [0 for _ in feats]
   for i, fnode in enumerate(fpn_config.nodes):

@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2020 Google Research. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -347,8 +346,6 @@ def per_class_nms(boxes, scores, classes, image_id, image_scale, num_classes,
     # then concatenated for the final detection outputs.
     all_detections_cls = np.column_stack((boxes_cls, scores_cls))
     top_detections_cls = nms(all_detections_cls, nms_configs)
-    top_detections_cls[:, 2] -= top_detections_cls[:, 0]
-    top_detections_cls[:, 3] -= top_detections_cls[:, 1]
     top_detections_cls = np.column_stack(
         (np.repeat(image_id, len(top_detections_cls)),
          top_detections_cls,

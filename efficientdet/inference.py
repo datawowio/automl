@@ -13,29 +13,22 @@
 # limitations under the License.
 # ==============================================================================
 r"""Inference related utilities."""
-
-from __future__ import absolute_import
-from __future__ import division
-# gtype import
-from __future__ import print_function
-
 import copy
 import functools
 import os
 import time
 from typing import Text, Dict, Any, List, Tuple, Union
-
 from absl import logging
 import numpy as np
 from PIL import Image
 import tensorflow.compat.v1 as tf
-import yaml
 
 import dataloader
 import det_model_fn
 import hparams_config
 import utils
 from keras import efficientdet_keras
+from keras import label_util
 from keras import postprocess
 from visualize import vis_utils
 from tensorflow.python.client import timeline  # pylint: disable=g-direct-tensorflow-import
@@ -184,12 +177,11 @@ def build_model(model_name: Text, inputs: tf.Tensor, **kwargs):
         box_outputs[i] = box_out_list[i - config.min_level]
       return cls_outputs, box_outputs
 
-    cls_outputs, box_outputs = utils.build_model_with_precision(
-        precision, model_arch, inputs, False, model_name, **kwargs)
   else:
     model_arch = det_model_fn.get_model_arch(model_name)
-    cls_outputs, box_outputs = utils.build_model_with_precision(
-        precision, model_arch, inputs, False, model_name, **kwargs)
+
+  cls_outputs, box_outputs = utils.build_model_with_precision(
+      precision, model_arch, inputs, False, model_name, **kwargs)
 
   if mixed_precision:
     # Post-processing has multiple places with hard-coded float32.
@@ -257,17 +249,17 @@ def det_post_process(params: Dict[Any, Any], cls_outputs: Dict[int, tf.Tensor],
     detections_batch: a batch of detection results. Each detection is a tensor
       with each row as [image_id, ymin, xmin, ymax, xmax, score, class].
   """
-  batch_size = cls_outputs[params['min_level']].shape[0]
-  if not batch_size:
+  if params.get('combined_nms', None):
     # Use combined version for dynamic batch size.
     nms_boxes, nms_scores, nms_classes, _ = postprocess.postprocess_combined(
         params, cls_outputs, box_outputs, scales)
-    batch_size = tf.shape(list(cls_outputs.values())[0])[0]
   else:
     nms_boxes, nms_scores, nms_classes, _ = postprocess.postprocess_global(
         params, cls_outputs, box_outputs, scales)
 
-  img_ids = tf.range(0, batch_size, dtype=nms_scores.dtype)
+  batch_size = tf.shape(cls_outputs[params['min_level']])[0]
+  img_ids = tf.expand_dims(
+      tf.cast(tf.range(0, batch_size), nms_scores.dtype), -1)
   detections = [
       img_ids * tf.ones_like(nms_scores),
       nms_boxes[:, :, 0],
@@ -284,7 +276,7 @@ def visualize_image(image,
                     boxes,
                     classes,
                     scores,
-                    id_mapping=None,
+                    label_map=None,
                     min_score_thresh=0.01,
                     max_boxes_to_draw=1000,
                     line_thickness=2,
@@ -296,7 +288,7 @@ def visualize_image(image,
     boxes: a box prediction with shape [N, 4] ordered [ymin, xmin, ymax, xmax].
     classes: a class prediction with shape [N].
     scores: A list of float value with shape [N].
-    id_mapping: a dictionary from class id to name.
+    label_map: a dictionary from class id to name.
     min_score_thresh: minimal score for showing. If claass probability is below
       this threshold, then the object will not show up.
     max_boxes_to_draw: maximum bounding box to draw.
@@ -306,8 +298,8 @@ def visualize_image(image,
   Returns:
     output_image: an output image with annotated boxes and classes.
   """
-  id_mapping = parse_label_id_mapping(id_mapping)
-  category_index = {k: {'id': k, 'name': id_mapping[k]} for k in id_mapping}
+  label_map = label_util.get_label_map(label_map or 'coco')
+  category_index = {k: {'id': k, 'name': label_map[k]} for k in label_map}
   img = np.array(image)
   vis_utils.visualize_boxes_and_labels_on_image_array(
       img,
@@ -322,41 +314,9 @@ def visualize_image(image,
   return img
 
 
-def parse_label_id_mapping(
-    label_id_mapping: Union[Text, Dict[int, Text]] = None) -> Dict[int, Text]:
-  """Parse label id mapping from a string or a yaml file.
-
-  The label_id_mapping is a dict that maps class id to its name, such as:
-
-    {
-      1: "person",
-      2: "dog"
-    }
-
-  Args:
-    label_id_mapping:
-
-  Returns:
-    A dictionary with key as integer id and value as a string of name.
-  """
-  if label_id_mapping is None:
-    return coco_id_mapping
-
-  if isinstance(label_id_mapping, dict):
-    label_id_dict = label_id_mapping
-  elif isinstance(label_id_mapping, str):
-    with tf.io.gfile.GFile(label_id_mapping) as f:
-      label_id_dict = yaml.load(f, Loader=yaml.FullLoader)
-  else:
-    raise TypeError('label_id_mapping must be a dict or a yaml filename, '
-                    'containing a mapping from class ids to class names.')
-
-  return label_id_dict
-
-
 def visualize_image_prediction(image,
                                prediction,
-                               label_id_mapping=None,
+                               label_map=None,
                                **kwargs):
   """Viusalize detections on a given image.
 
@@ -364,7 +324,7 @@ def visualize_image_prediction(image,
     image: Image content in shape of [height, width, 3].
     prediction: a list of vector, with each vector has the format of [image_id,
       ymin, xmin, ymax, xmax, score, class].
-    label_id_mapping: a map from label id to name.
+    label_map: a map from label id to name.
     **kwargs: extra parameters for vistualization, such as min_score_thresh,
       max_boxes_to_draw, and line_thickness.
 
@@ -374,10 +334,8 @@ def visualize_image_prediction(image,
   boxes = prediction[:, 1:5]
   classes = prediction[:, 6].astype(int)
   scores = prediction[:, 5]
-  label_id_mapping = label_id_mapping or coco_id_mapping
 
-  return visualize_image(image, boxes, classes, scores, label_id_mapping,
-                         **kwargs)
+  return visualize_image(image, boxes, classes, scores, label_map, **kwargs)
 
 
 class ServingDriver(object):
@@ -459,8 +417,7 @@ class ServingDriver(object):
     if model_params:
       self.params.update(model_params)
     self.params.update(dict(is_training_bn=False))
-    self.label_id_mapping = parse_label_id_mapping(
-        self.params.get('label_id_mapping', None))
+    self.label_map = self.params.get('label_map', None)
 
     self.signitures = None
     self.sess = None
@@ -520,7 +477,7 @@ class ServingDriver(object):
     return visualize_image_prediction(
         image,
         prediction,
-        label_id_mapping=self.label_id_mapping,
+        label_map=self.label_map,
         **kwargs)
 
   def serve_files(self, image_files: List[Text]):
@@ -713,8 +670,7 @@ class InferenceDriver(object):
     if model_params:
       self.params.update(model_params)
     self.params.update(dict(is_training_bn=False))
-    self.label_id_mapping = parse_label_id_mapping(
-        self.params.get('label_id_mapping', None))
+    self.label_map = self.params.get('label_map', None)
 
   def inference(self, image_path_pattern: Text, output_dir: Text, **kwargs):
     """Read and preprocess input images.
@@ -753,7 +709,7 @@ class InferenceDriver(object):
         img = visualize_image_prediction(
             raw_images[i],
             prediction,
-            label_id_mapping=self.label_id_mapping,
+            label_map=self.label_map,
             **kwargs)
         output_image_path = os.path.join(output_dir, str(i) + '.jpg')
         Image.fromarray(img).save(output_image_path)

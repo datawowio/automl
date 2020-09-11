@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2020 Google Research. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,6 +40,7 @@ def decode_box_outputs(pred_boxes, anchor_boxes):
   Returns:
     outputs: bounding boxes.
   """
+  anchor_boxes = tf.cast(anchor_boxes, pred_boxes.dtype)
   ycenter_a = (anchor_boxes[..., 0] + anchor_boxes[..., 2]) / 2
   xcenter_a = (anchor_boxes[..., 1] + anchor_boxes[..., 3]) / 2
   ha = anchor_boxes[..., 2] - anchor_boxes[..., 0]

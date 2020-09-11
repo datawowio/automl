@@ -15,27 +15,17 @@
 """COCO-style evaluation metrics.
 
 Implements the interface of COCO API and metric_fn in tf.TPUEstimator.
-
 COCO API: github.com/cocodataset/cocoapi/
 """
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import json
 import os
-import zipfile
-from absl import flags
 from absl import logging
-
 import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-
 import tensorflow as tf
 
-FLAGS = flags.FLAGS
+from keras import label_util
 
 
 class EvaluationMetric():
@@ -44,7 +34,7 @@ class EvaluationMetric():
   This class cannot inherit from tf.keras.metrics.Metric due to numpy.
   """
 
-  def __init__(self, filename=None, testdev_dir=None):
+  def __init__(self, filename=None, testdev_dir=None, label_map=None):
     """Constructs COCO evaluation class.
 
     The class provides the interface to metrics_fn in TPUEstimator. The
@@ -58,7 +48,9 @@ class EvaluationMetric():
         ignored if testdev_dir is not None.
       testdev_dir: folder name for testdev data. If None, run eval without
         groundtruth, and filename will be ignored.
+      label_map: a dict from id to class name. Used for per-class AP.
     """
+    self.label_map = label_map
     self.filename = filename
     self.testdev_dir = testdev_dir
     self.metric_names = ['AP', 'AP50', 'AP75', 'APs', 'APm', 'APl', 'ARmax1',
@@ -110,7 +102,7 @@ class EvaluationMetric():
       logging.info('Writing output json file to: %s', output_path)
       with tf.io.gfile.GFile(output_path, 'w') as fid:
         json.dump(box_result_list, fid)
-      return np.array([0.], dtype=np.float32)
+      return np.array([-1.], dtype=np.float32)
     else:
       # Run on validation dataset.
       detections = np.array(self.detections)
@@ -122,6 +114,25 @@ class EvaluationMetric():
       coco_eval.accumulate()
       coco_eval.summarize()
       coco_metrics = coco_eval.stats
+
+      if self.label_map:
+        # Get per_class AP, see pycocotools/cocoeval.py:334
+        # TxRxKxAxM: iouThrs x recThrs x catIds x areaRng x maxDets
+        # Use areaRng_id=0 ('all') and maxDets_id=-1 (200) in default
+        precision = coco_eval.eval['precision'][:, :, :, 0, -1]
+        if len(self.label_map) <= precision.shape[-1]:
+          ap_perclass = [0] * precision.shape[-1]
+          # This branch should always be True unless users use a wrong label map
+          # where #classes larger than the actual available classes in gt.
+          for c in range(precision.shape[-1]):  # iterate over all classes
+            precision_c = precision[:, :, c]
+            # Only consider values if > -1.
+            precision_c = precision_c[precision_c > -1]
+            ap_c = np.mean(precision_c) if precision_c.size else -1.
+            ap_perclass[c] = ap_c
+          coco_metrics = np.concatenate((coco_metrics, ap_perclass))
+
+      # Return the concat normal and per-class AP.
       return np.array(coco_metrics, dtype=np.float32)
 
   def result(self):
@@ -205,6 +216,7 @@ class EvaluationMetric():
         [image_id, x, y, width, height, score, class]
       groundtruth_data: Groundtruth annotations in a tensor with each row
         representing [y1, x1, y2, x2, is_crowd, area, class].
+      label_map: optional, a map from class id to name.
     Returns:
       metrics_dict: A dictionary mapping from evaluation name to a tuple of
         operations (`metric_op`, `update_op`). `update_op` appends the
@@ -224,4 +236,12 @@ class EvaluationMetric():
         metrics_dict = {}
         for i, name in enumerate(self.metric_names):
           metrics_dict[name] = (metrics[i], update_op)
+
+        if self.label_map:
+          # process per-class AP.
+          label_map = label_util.get_label_map(self.label_map)
+          for i, cid in enumerate(sorted(label_map.keys())):
+            name = 'AP_/%s' % label_map[cid]
+            metrics_dict[name] = (metrics[i + len(self.metric_names)],
+                                  update_op)
         return metrics_dict
