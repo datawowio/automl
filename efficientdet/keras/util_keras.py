@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2020 Google Research. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,11 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Common keras utils."""
-# gtype import
-
 from typing import Text
-import tensorflow as tf
-
 import utils
 
 
@@ -40,21 +35,14 @@ def build_batch_norm(is_training_bn: bool,
       width]` or "channels_last for `[batch, height, width, channels]`.
     momentum: `float`, momentume of batch norm.
     epsilon: `float`, small value for numerical stability.
-    strategy: `str`, whether to use tpu, horovod or other version of batch norm.
+    strategy: `str`, whether to use tpu, gpus or other version of batch norm.
     name: the name of the batch normalization layer
 
   Returns:
     A normalized `Tensor` with the same `data_format`.
   """
   axis = 1 if data_format == 'channels_first' else -1
-  if is_training_bn:
-    if strategy in ('gpus',):
-      batch_norm_class = tf.keras.layers.experimental.SyncBatchNormalization
-    else:
-      # TODO(tanmingxing): compare them on TPU.
-      batch_norm_class = utils.batch_norm_class(is_training_bn, strategy)
-  else:
-    batch_norm_class = tf.keras.layers.BatchNormalization
+  batch_norm_class = utils.batch_norm_class(is_training_bn, strategy)
 
   bn_layer = batch_norm_class(
       axis=axis,
