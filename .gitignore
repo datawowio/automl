@@ -2,7 +2,4 @@ __pycache__
 .DS_Store
 .vscode
 tmp
-VOCdevkit
-tfrecord
-efficientdet-*
-savedmodeldir*
+.ropeproject

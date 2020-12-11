@@ -125,12 +125,12 @@ use the following command:
     !rm  -rf /tmp/benchmark/
     !python model_inspect.py --runmode=saved_model --model_name=efficientdet-d0 \
       --ckpt_path=efficientdet-d0 --saved_model_dir=/tmp/benchmark/ \
-      --hparams=voc_config.yaml
+      --hparams=mixed_precision=true
 
     !python model_inspect.py --runmode=saved_model_benchmark \
       --saved_model_dir=/tmp/benchmark/efficientdet-d0_frozen.pb \
       --model_name=efficientdet-d0  --input_image=testdata/img1.jpg  \
-      --output_image_dir=/tmp/  \
+      --output_image_dir=/tmp/
 
 On single Tesla V100 without using TensorRT, our end-to-end
 latency and throughput are:
@@ -368,5 +368,50 @@ Then train the model:
 For more instructions about training on TPUs, please refer to the following tutorials:
 
   * EfficientNet tutorial: https://cloud.google.com/tpu/docs/tutorials/efficientnet
+
+## 11. Reducing Memory Usage when Training EfficientDets on GPU. (The current approach doesn't support mirrored multi GPU or mixed-precision training)
+
+EfficientDets use a lot of GPU memory for a few reasons:
+
+* Large input resolution: because resolution is one of the scaling dimension, our resolution tends to be higher, which significantly increase activations (although no parameter increase).
+* Large internal activations for backbone: our backbone uses a relatively large expansion ratio (6), causing the large expanded activations.
+* Deep BiFPN: our BiFPN has multiple top-down and bottom-up paths, which leads to a lot of intermediate memory usage during training.
+
+To train this model on GPU with low memory there is an experimental option grad_checkpoint.
+
+Check these links for a high-level idea of what gradient checkpointing is doing:
+1. https://medium.com/tensorflow/fitting-larger-networks-into-memory-583e3c758ff9
+
+**grad_checkpoint: True**
+
+If set to True, keras model uses ```tf.recompute_grad``` to achieve gradient checkpoints.
+
+Testing shows that:
+* It also allows to train a d6 network with batch size of 2 by main.py on a 11Gb (1080Ti) GPU
+
+## 12. Visualize TF-Records.
+
+You can visualize tf-records with following commands:
+
+To visualize training tfrecords with input dataloader use.
+```
+python dataset/inspect_tfrecords.py --file_pattern dataset/sample.record\ 
+--model_name "efficientdet-d0" --samples 10\ 
+--save_samples_dir train_samples/  -hparams="label_map={1:'label1'}, autoaugmentation_policy=v3"
+
+```
+
+To visualize evaluation tfrecords use.
+```
+python dataset/inspect_tfrecords.py --file_pattern dataset/sample.record\ 
+--model_name "efficientdet-d0" --samples 10\ 
+--save_samples_dir train_samples/  -eval\
+-hparams="label_map={1:'label1'}"
+
+```
+* samples: random samples to visualize.
+* model_name: model name will be used to get image_size.
+* save_samples_dir: save dir.
+* eval: flag for eval data.
 
 NOTE: this is not an official Google product.

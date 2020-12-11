@@ -120,24 +120,23 @@ class EvaluationMetric():
         # TxRxKxAxM: iouThrs x recThrs x catIds x areaRng x maxDets
         # Use areaRng_id=0 ('all') and maxDets_id=-1 (200) in default
         precision = coco_eval.eval['precision'][:, :, :, 0, -1]
-        if len(self.label_map) <= precision.shape[-1]:
-          ap_perclass = [0] * precision.shape[-1]
-          # This branch should always be True unless users use a wrong label map
-          # where #classes larger than the actual available classes in gt.
-          for c in range(precision.shape[-1]):  # iterate over all classes
-            precision_c = precision[:, :, c]
-            # Only consider values if > -1.
-            precision_c = precision_c[precision_c > -1]
-            ap_c = np.mean(precision_c) if precision_c.size else -1.
-            ap_perclass[c] = ap_c
-          coco_metrics = np.concatenate((coco_metrics, ap_perclass))
+        # Ideally, label_map should match the eval set, but it is possible that
+        # some classes has no data in the eval set.
+        ap_perclass = [0] * max(precision.shape[-1], len(self.label_map))
+        for c in range(precision.shape[-1]):  # iterate over all classes
+          precision_c = precision[:, :, c]
+          # Only consider values if > -1.
+          precision_c = precision_c[precision_c > -1]
+          ap_c = np.mean(precision_c) if precision_c.size else -1.
+          ap_perclass[c] = ap_c
+        coco_metrics = np.concatenate((coco_metrics, ap_perclass))
 
       # Return the concat normal and per-class AP.
       return np.array(coco_metrics, dtype=np.float32)
 
   def result(self):
     """Return the metric values (and compute it if needed)."""
-    if not self.metric_values:
+    if self.metric_values is None:
       self.metric_values = self.evaluate()
     return self.metric_values
 
@@ -211,12 +210,12 @@ class EvaluationMetric():
     `self.detections` list. The metric op is invoked after all examples have
     been seen and computes the aggregate COCO metrics. Please find details API
     in: https://www.tensorflow.org/api_docs/python/tf/contrib/learn/MetricSpec
+
     Args:
       detections: Detection results in a tensor with each row representing
         [image_id, x, y, width, height, score, class]
       groundtruth_data: Groundtruth annotations in a tensor with each row
         representing [y1, x1, y2, x2, is_crowd, area, class].
-      label_map: optional, a map from class id to name.
     Returns:
       metrics_dict: A dictionary mapping from evaluation name to a tuple of
         operations (`metric_op`, `update_op`). `update_op` appends the
